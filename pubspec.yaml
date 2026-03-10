@@ -1,0 +1,20 @@
+name: sint_sentinel
+description: Circuit Breaker & Rate Limiter for the SINT Framework. Protects against DoS, infinite loops, and excessive Firebase calls.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  sint:
+    path: ../sint
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
