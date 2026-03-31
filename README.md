@@ -364,7 +364,33 @@ sint_sentinel was built so that this can never happen again. Not in our apps, an
 - Dart SDK `>=3.4.0 <4.0.0`
 - Flutter `>=3.22.0`
 - [sint](https://pub.dev/packages/sint) `^1.3.0`
-- [hive](https://pub.dev/packages/hive) `^2.2.3`
+- [hive_flutter](https://pub.dev/packages/hive_flutter) `^1.1.0`
+
+## Platform Support
+
+| Platform | Supported |
+|----------|:---------:|
+| Android  | Yes |
+| iOS      | Yes |
+| Web      | Yes |
+| macOS    | Yes |
+| Windows  | Yes |
+| Linux    | Yes |
+| WASM     | Not yet |
+
+### WASM Compatibility Roadmap
+
+sint_sentinel currently uses `hive_flutter` for persistence, which depends on `dart:io` and is not WASM-compatible. A future version will migrate to `shared_preferences` to achieve full WASM support.
+
+The migration path is straightforward — sint_sentinel only persists simple key-value data (counters, timestamps, JSON-serialized snapshots). The public API (`SintSentinel.guard()`, `.capture()`, etc.) will remain unchanged.
+
+| Storage need | Current (Hive) | Future (shared_preferences) |
+|-------------|----------------|----------------------------|
+| `dailyReads: 450` | `Box.put(key, 450)` | `prefs.setInt(key, 450)` |
+| `timestamps: [1,2,3]` | `Box.put(key, list)` | `prefs.setString(key, jsonEncode(list))` |
+| `snapshots: [...]` | `Box.put(key, list)` | `prefs.setString(key, jsonEncode(list))` |
+
+If WASM support is critical for your project today, you can implement the migration yourself by replacing `SentinelHiveController` with a `SharedPreferences`-backed equivalent and passing it to `SentinelCircuit`.
 
 ## License
 

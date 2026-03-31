@@ -1,11 +1,7 @@
 name: sint_sentinel
-description: Circuit Breaker & Rate Limiter for the SINT framework.
-  Protects Flutter apps against excessive API calls, DoS, infinite rebuild loops,
-  and cascading failures with zero-config defaults.
-version: 1.0.0
-homepage: https://github.com/Open-Neom/sint_sentinel
+description: "Circuit Breaker, Rate Limiter & Snapshot Auditor for Flutter. Protects against excessive API calls, infinite rebuild loops, and cascading failures."
+version: 1.0.1
 repository: https://github.com/Open-Neom/sint_sentinel
-issue_tracker: https://github.com/Open-Neom/sint_sentinel/issues
 topics:
   - circuit-breaker
   - rate-limiter
