@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+
+- Fix: Replaced `hive` direct dependency with `hive_flutter` (re-exports all of `hive`).
+- Fix: Description length for pub.dev compliance.
+- Added WASM compatibility roadmap to README.
+- Added platform support table to README.
+- Added `.pubignore` to exclude build artifacts.
+
 ## 1.0.0
 
 - Initial stable release.
