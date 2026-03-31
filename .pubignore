@@ -4,6 +4,9 @@ assets/css/
 build/
 .idea/
 .github/
+.git/
 *.iml
 .flutter-plugins-dependencies
+.flutter-plugins
 pubspec.lock
+.DS_Store
