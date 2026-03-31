@@ -21,7 +21,7 @@
 /// // 3. (Optional) Monitor widget rebuilds
 /// class _MyState extends State<MyWidget> with SentinelRebuildMonitor { ... }
 /// ```
-library sint_sentinel;
+library;
 
 // Core
 export 'src/core/sentinel_circuit.dart';
@@ -33,6 +33,7 @@ export 'src/guard/sint_sentinel_guard.dart';
 
 // Persistence
 export 'src/persistence/sentinel_hive_controller.dart';
+export 'src/persistence/sentinel_snapshot.dart';
 
 // UI
 export 'src/ui/sentinel_app.dart';

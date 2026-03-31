@@ -45,6 +45,10 @@ class SentinelCircuit {
   int _tripCount = 0;
   int? _openUntilMs;
 
+  /// Optional callback invoked after every circuit trip.
+  /// Used by [SintSentinel] to auto-capture snapshots.
+  Future<void> Function()? onTrip;
+
   // ---------------------------------------------------------------------------
   // Constructor
   // ---------------------------------------------------------------------------
@@ -204,6 +208,9 @@ class SentinelCircuit {
 
     blockReason.value = reason;
     await _transitionTo(SentinelCircuitState.open);
+
+    // Auto-capture snapshot on trip
+    await onTrip?.call();
   }
 
   /// Attempts to move from OPEN to HALF_OPEN for manual retry (from UI).

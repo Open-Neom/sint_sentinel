@@ -2,6 +2,7 @@ import '../core/sentinel_circuit.dart';
 import '../core/sentinel_config.dart';
 import '../core/sentinel_state.dart';
 import '../persistence/sentinel_hive_controller.dart';
+import '../persistence/sentinel_snapshot.dart';
 
 /// Exception thrown when a guarded call is blocked by the circuit breaker.
 class SentinelBlockedException implements Exception {
@@ -41,6 +42,7 @@ class SintSentinel {
 
   static SentinelCircuit? _circuit;
   static SentinelConfig _config = const SentinelConfig();
+  static final SentinelSnapshotStore _snapshots = SentinelSnapshotStore.instance;
 
   // ---------------------------------------------------------------------------
   // Initialization
@@ -58,6 +60,8 @@ class SintSentinel {
       hive: SentinelHiveController(),
     );
     await _circuit!.init();
+    await _snapshots.init();
+    _circuit!.onTrip = () => capture();
   }
 
   // ---------------------------------------------------------------------------
@@ -137,6 +141,48 @@ class SintSentinel {
     status['config'] = _config.toString();
     return status;
   }
+
+  // ---------------------------------------------------------------------------
+  // Snapshots
+  // ---------------------------------------------------------------------------
+
+  /// Captures a snapshot of the current state and persists it to history.
+  ///
+  /// Called automatically on every circuit trip. Can also be called on
+  /// demand by external consumers (e.g. AI context enrichment).
+  static Future<SentinelSnapshot> capture() async {
+    final status = await getStatus();
+    final traffic = status['traffic'] as Map<String, dynamic>? ?? {};
+
+    final snapshot = SentinelSnapshot(
+      timestamp: DateTime.now(),
+      circuitState: status['circuitState'] as String? ?? 'closed',
+      blockReason: status['blockReason'] as String? ?? '',
+      consecutiveFailures: status['consecutiveFailures'] as int? ?? 0,
+      tripCount: status['tripCount'] as int? ?? 0,
+      requestsLastMinute: traffic['requestsLastMinute'] as int? ?? 0,
+      dailyReads: traffic['dailyReads'] as int? ?? 0,
+      dailyWrites: traffic['dailyWrites'] as int? ?? 0,
+      minuteUsagePercent: (traffic['minuteUsagePercent'] ?? 0).toDouble(),
+      dailyReadUsagePercent: (traffic['dailyReadUsagePercent'] ?? 0).toDouble(),
+      rebuildOffenders: List<String>.from(status['rebuildOffenders'] ?? []),
+    );
+
+    await _snapshots.save(snapshot);
+    return snapshot;
+  }
+
+  /// The most recent snapshot, or `null` if none captured yet.
+  static Future<SentinelSnapshot?> get latestSnapshot =>
+      _snapshots.getLatest();
+
+  /// All stored snapshots (up to [SentinelSnapshotStore.maxSnapshots]).
+  static Future<List<SentinelSnapshot>> get snapshotHistory =>
+      _snapshots.getAll();
+
+  /// Snapshots from the last [duration] (e.g. last hour).
+  static Future<List<SentinelSnapshot>> recentSnapshots(Duration duration) =>
+      _snapshots.getRecent(duration);
 
   // ---------------------------------------------------------------------------
   // Admin

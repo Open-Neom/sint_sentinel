@@ -5,7 +5,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:sint_sentinel/sint_sentinel.dart';
 
 // ═══════════════════════════════════════════════════════
@@ -287,7 +287,7 @@ void main() {
   test('[5/5] StateWatchdog.recordRebuild() throughput (100k calls)',
       () async {
     final watchdog = StateWatchdog(
-      config: SentinelConfig(maxRebuildsPerSecond: 100000),
+      config: const SentinelConfig(maxRebuildsPerSecond: 100000),
     );
 
     const widgetCount = 50;

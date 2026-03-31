@@ -1,4 +1,4 @@
-import 'package:hive/hive.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 /// Singleton Hive controller for persisting SintSentinel state across
 /// app restarts.
