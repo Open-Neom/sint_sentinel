@@ -1,6 +1,9 @@
+assets/*.png
+assets/css/
 .dart_tool/
 build/
 .idea/
+.github/
 *.iml
 .flutter-plugins-dependencies
 pubspec.lock
