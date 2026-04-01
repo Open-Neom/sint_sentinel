@@ -52,7 +52,7 @@ class SentinelHiveController {
 
   Future<String> getCircuitState() async {
     final box = await _getBox();
-    return box.get(_keyCircuitState, defaultValue: 'closed') as String;
+    return (box.get(_keyCircuitState) as String?) ?? 'closed';
   }
 
   Future<void> setCircuitState(String state) async {
@@ -66,7 +66,7 @@ class SentinelHiveController {
 
   Future<int> getDailyReads() async {
     final box = await _getBox();
-    return box.get(_keyDailyReads, defaultValue: 0) as int;
+    return (box.get(_keyDailyReads) as int?) ?? 0;
   }
 
   Future<void> setDailyReads(int count) async {
@@ -82,7 +82,7 @@ class SentinelHiveController {
 
   Future<int> getDailyWrites() async {
     final box = await _getBox();
-    return box.get(_keyDailyWrites, defaultValue: 0) as int;
+    return (box.get(_keyDailyWrites) as int?) ?? 0;
   }
 
   Future<void> setDailyWrites(int count) async {
@@ -132,7 +132,7 @@ class SentinelHiveController {
 
   Future<int> getConsecutiveFailures() async {
     final box = await _getBox();
-    return box.get(_keyConsecutiveFailures, defaultValue: 0) as int;
+    return (box.get(_keyConsecutiveFailures) as int?) ?? 0;
   }
 
   Future<void> setConsecutiveFailures(int count) async {
@@ -164,7 +164,7 @@ class SentinelHiveController {
 
   Future<int> getTripCount() async {
     final box = await _getBox();
-    return box.get(_keyTripCount, defaultValue: 0) as int;
+    return (box.get(_keyTripCount) as int?) ?? 0;
   }
 
   Future<void> setTripCount(int count) async {
