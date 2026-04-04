@@ -1,3 +1,5 @@
+import 'package:logger/logger.dart';
+
 import '../core/sentinel_circuit.dart';
 import '../core/sentinel_config.dart';
 import '../core/sentinel_state.dart';
@@ -37,6 +39,45 @@ class SintSentinel {
   SintSentinel._(); // Non-instantiable
 
   // ---------------------------------------------------------------------------
+  // Logger — use SintSentinel.logger.d(), .i(), .w(), .e(), .t(), .f()
+  // ---------------------------------------------------------------------------
+
+  /// Global logger instance available to all consumers.
+  ///
+  /// ```dart
+  /// SintSentinel.logger.d('Debug message');
+  /// SintSentinel.logger.i('Info message');
+  /// SintSentinel.logger.w('Warning');
+  /// SintSentinel.logger.e('Error', error: e, stackTrace: st);
+  /// SintSentinel.logger.t('Trace / verbose');
+  /// SintSentinel.logger.f('Fatal');
+  /// ```
+  ///
+  /// Override the default logger via [configureLogger] before or after [init].
+  static Logger logger = Logger(
+    printer: PrettyPrinter(
+      methodCount: 0,
+      errorMethodCount: 5,
+      lineLength: 80,
+      colors: true,
+      printEmojis: true,
+      dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
+    ),
+  );
+
+  /// Replaces the default logger with a custom [Logger] instance.
+  ///
+  /// Call before or after [init] — logging works either way.
+  ///
+  /// ```dart
+  /// SintSentinel.configureLogger(Logger(
+  ///   printer: PrettyPrinter(methodCount: 2, colors: false),
+  ///   level: Level.warning,
+  /// ));
+  /// ```
+  static void configureLogger(Logger custom) => logger = custom;
+
+  // ---------------------------------------------------------------------------
   // Internal state
   // ---------------------------------------------------------------------------
 
@@ -62,6 +103,7 @@ class SintSentinel {
     await _circuit!.init();
     await _snapshots.init();
     _circuit!.onTrip = () => capture();
+    logger.i('SintSentinel initialized — $_config');
   }
 
   // ---------------------------------------------------------------------------
@@ -96,17 +138,22 @@ class SintSentinel {
 
     // --- Check the circuit ---
     if (!await circuit.canExecute(isWrite: isWrite)) {
+      final reason = circuit.blockReason.value;
+      logger.w('Sentinel BLOCKED${tag != null ? ' [$tag]' : ''}: $reason');
       if (fallback != null) return fallback();
-      throw SentinelBlockedException(circuit.blockReason.value);
+      throw SentinelBlockedException(reason);
     }
 
     // --- Execute the action ---
     try {
       final result = await action();
       await circuit.recordSuccess();
+      if (tag != null) logger.t('Sentinel OK [$tag]');
       return result;
     } catch (e) {
       await circuit.recordFailure();
+      logger.e('Sentinel FAILURE${tag != null ? ' [$tag]' : ''}',
+          error: e);
       rethrow;
     }
   }
@@ -191,6 +238,7 @@ class SintSentinel {
   /// Full reset — closes the circuit and clears all counters.
   static Future<void> reset() async {
     await _circuit?.reset();
+    logger.i('SintSentinel reset — circuit closed, counters cleared');
   }
 
   /// Disposes the sentinel (for app shutdown / testing).

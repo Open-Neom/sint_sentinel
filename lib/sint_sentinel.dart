@@ -23,6 +23,10 @@
 /// ```
 library;
 
+// Re-export Logger so consumers can use SintSentinel.logger without
+// importing package:logger separately.
+export 'package:logger/logger.dart' show Logger, Level, PrettyPrinter, LogPrinter, DateTimeFormat;
+
 // Core
 export 'src/core/sentinel_circuit.dart';
 export 'src/core/sentinel_config.dart';
