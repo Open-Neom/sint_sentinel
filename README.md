@@ -7,7 +7,7 @@
 [![pub package](https://img.shields.io/pub/v/sint_sentinel.svg)](https://pub.dev/packages/sint_sentinel)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-**Circuit Breaker, Rate Limiter & Snapshot Auditor for Flutter.**
+**Circuit Breaker, Rate Limiter, Logger & Snapshot Auditor for Flutter.**
 
 Born from a real incident where a single Flutter widget generated **165,000 Firestore reads in 4 hours** due to a `StreamBuilder` inside `build()`. That bug cost real money and could have bankrupted the project. sint_sentinel makes sure it never happens again.
 
@@ -36,6 +36,7 @@ Most backend circuit breakers protect servers. **sint_sentinel protects the clie
 
 ## Features
 
+- **Application Logger** — Centralized `Logger` accessible everywhere via `SintSentinel.logger`. Supports all log levels: `d()`, `i()`, `w()`, `e()`, `t()`, `f()`. Re-exports `Logger`, `Level`, `PrettyPrinter` so consumers need only one import.
 - **Circuit Breaker** — Three-state machine (CLOSED / OPEN / HALF_OPEN) that blocks traffic when quotas are exceeded or failures accumulate.
 - **Traffic Watchdog** — Sliding 60-second rate limiter + daily read/write quotas. Catches runaway Firestore listeners, accidental polling, bot abuse.
 - **State Watchdog** — Monitors widget rebuild frequency per widget ID. Detects and throttles infinite `setState` loops before they freeze the UI.
@@ -53,7 +54,7 @@ Most backend circuit breakers protect servers. **sint_sentinel protects the clie
 
 ```yaml
 dependencies:
-  sint_sentinel: ^1.0.0
+  sint_sentinel: ^1.1.0
 ```
 
 ### 2. Wrap your app
@@ -110,6 +111,89 @@ When a widget exceeds 30 rebuilds/second:
 1. Excess `setState` calls are **dropped** silently (UI stays responsive).
 2. A console warning fires once: `SintSentinel: Cyclic rebuild detected in MyPage`.
 3. If abuse continues (90+ throttled calls), the circuit **trips** and a snapshot is captured automatically.
+
+---
+
+## Logger
+
+sint_sentinel provides a **centralized application-level logger** via `SintSentinel.logger`. One import, one logger, everywhere in your app.
+
+### Basic Usage
+
+```dart
+import 'package:sint_sentinel/sint_sentinel.dart';
+
+// All log levels available
+SintSentinel.logger.t('Trace message');     // verbose/trace
+SintSentinel.logger.d('Debug details');     // debug
+SintSentinel.logger.i('App started');       // info
+SintSentinel.logger.w('Slow response');     // warning
+SintSentinel.logger.e('Request failed');    // error
+SintSentinel.logger.f('Fatal crash');       // fatal/wtf
+```
+
+### Re-exported Types
+
+sint_sentinel re-exports core types from `package:logger`, so you **don't need a separate dependency**:
+
+```dart
+// These are all available from sint_sentinel directly:
+import 'package:sint_sentinel/sint_sentinel.dart';
+// Logger, Level, PrettyPrinter, LogPrinter, DateTimeFormat
+```
+
+### Custom Logger
+
+Replace the default logger with your own configuration:
+
+```dart
+SintSentinel.configureLogger(
+  Logger(
+    printer: PrettyPrinter(
+      methodCount: 0,
+      errorMethodCount: 5,
+      lineLength: 80,
+      colors: true,
+      printEmojis: true,
+      dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
+    ),
+    level: Level.debug,
+  ),
+);
+```
+
+### Automatic Guard Logging
+
+`SintSentinel.guard()` automatically logs every operation:
+
+```dart
+// This single call:
+await SintSentinel.guard(() => api.fetchUser(), tag: 'User.fetch');
+
+// Produces logs like:
+// 🛡️ [guard] User.fetch → OK (circuit: closed)
+// 🛡️ [guard] User.fetch → BLOCKED (circuit: open)
+// 🛡️ [guard] User.fetch → FAILED: TimeoutException (failures: 3/5)
+```
+
+### Pattern: Service-Level Logger
+
+For services that need frequent logging, use a static getter:
+
+```dart
+class MyApiClient {
+  static Logger get _log => SintSentinel.logger;
+
+  Future<void> fetchData() async {
+    _log.d('Fetching data from /api/data');
+    final response = await SintSentinel.guard(
+      () => http.get(Uri.parse('/api/data')),
+      tag: 'MyApi.fetchData',
+    );
+    _log.i('Data fetched: ${response.statusCode}');
+  }
+}
+```
 
 ---
 
@@ -365,6 +449,7 @@ sint_sentinel was built so that this can never happen again. Not in our apps, an
 - Flutter `>=3.22.0`
 - [sint](https://pub.dev/packages/sint) `^1.3.0`
 - [hive_flutter](https://pub.dev/packages/hive_flutter) `^1.1.0`
+- [logger](https://pub.dev/packages/logger) `^2.7.0`
 
 ## Platform Support
 

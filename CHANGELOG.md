@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0
+
+### Logger Integration — Application-Level Logging
+
+sint_sentinel is now the **centralized logger** for your entire Flutter application.
+
+- **`SintSentinel.logger`**: Static `Logger` instance available everywhere via `SintSentinel.logger.d()`, `.i()`, `.w()`, `.e()`, `.t()`, `.f()`.
+- **`SintSentinel.configureLogger()`**: Replace the default logger with a custom `Logger` instance (custom printers, output, filters).
+- **Re-exports**: `Logger`, `Level`, `PrettyPrinter`, `LogPrinter`, `DateTimeFormat` from `package:logger` — consumers don't need a separate `logger` dependency.
+- **Guard logging**: `SintSentinel.guard()` now logs blocked calls, successful calls, and failures automatically with tags.
+- **Init logging**: `SintSentinel.init()` logs initialization and circuit state on startup.
+
+### Dependencies
+
+- Added `logger: ^2.7.0` as a dependency.
+
 ## 1.0.1
 
 - Fix: Replaced `hive` direct dependency with `hive_flutter` (re-exports all of `hive`).

@@ -1,5 +1,5 @@
 name: sint_sentinel
-description: "Circuit Breaker, Rate Limiter & Snapshot Auditor for Flutter. Protects against excessive API calls, infinite rebuild loops, and cascading failures."
+description: "Circuit Breaker, Rate Limiter, Logger & Snapshot Auditor for Flutter. Protects against excessive API calls, infinite rebuild loops, and cascading failures."
 version: 1.1.0
 repository: https://github.com/Open-Neom/sint_sentinel
 topics:
