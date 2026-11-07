@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+- Widen `sint` compatibility constraint (`>=1.3.0 <3.0.0`) for seamless `sint 2.1` resolution and add `@Open-Neom` GitHub Sponsors `funding` metadata.
+
 ## 1.1.0
 
 ### Logger Integration — Application-Level Logging
