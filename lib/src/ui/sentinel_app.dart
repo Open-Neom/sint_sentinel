@@ -55,7 +55,13 @@ class _SentinelAppState extends State<SentinelApp> {
   }
 
   Future<void> _initSentinel() async {
-    await SintSentinel.init(config: widget.config);
+    try {
+      await SintSentinel.init(config: widget.config);
+    } catch (e) {
+      SintSentinel.logger.w(
+        'SentinelApp init fallback: ${SintSentinel.sanitizeDiagnosticText('$e')}',
+      );
+    }
     if (mounted) {
       _initialized.value = true;
     }
@@ -71,38 +77,50 @@ class _SentinelAppState extends State<SentinelApp> {
 
   @override
   Widget build(BuildContext context) {
-    // Always wrap in Obx from the first build to keep the widget tree
-    // structure consistent: `_SentinelAppState → Obx → child`.
-    //
-    // If the tree changes from `State → child` to `State → Obx → child`,
-    // Flutter's reconciliation unmounts and recreates the child, which
-    // disposes SintRoot and sets its static _controller to null — causing
-    // "SintRoot is not part of the three" crash.
-    return Obx(() {
-      // Read the Rx value to register the Obx listener.
-      final isReady = _initialized.value;
-
-      if (isReady) {
-        final circuitState = SintSentinel.circuit?.state.value;
-
-        if (circuitState == SentinelCircuitState.open) {
-          // Circuit is OPEN — show maintenance page.
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: ThemeData(
-              brightness: Brightness.dark,
-              fontFamily: 'OpenSans',
-            ),
-            home: SentinelMaintenancePage(
-              reason: SintSentinel.circuit?.blockReason.value ?? '',
-              onRetry: () => SintSentinel.circuit?.tryHalfOpen(),
+    // Keep `widget.child` permanently mounted at the exact same element slot
+    // across all circuit transitions (uninitialized -> closed -> open ->
+    // halfOpen -> closed). Replacing `widget.child` with a separate widget
+    // would unmount `SintRoot`, null out its static controller, and destroy
+    // active navigation stacks and controllers.
+    return Stack(
+      textDirection: TextDirection.ltr,
+      children: [
+        Obx(() {
+          final isOpen = _initialized.value &&
+              SintSentinel.circuit?.state.value == SentinelCircuitState.open;
+          return IgnorePointer(
+            ignoring: isOpen,
+            child: ExcludeSemantics(
+              excluding: isOpen,
+              child: TickerMode(
+                enabled: !isOpen,
+                child: widget.child,
+              ),
             ),
           );
-        }
-      }
-
-      // Circuit is CLOSED, HALF_OPEN, or not yet initialized — show the app.
-      return widget.child;
-    });
+        }),
+        Obx(() {
+          final isReady = _initialized.value;
+          final circuitState =
+              isReady ? SintSentinel.circuit?.state.value : null;
+          if (circuitState != SentinelCircuitState.open) {
+            return const SizedBox.shrink();
+          }
+          return Positioned.fill(
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: ThemeData(
+                brightness: Brightness.dark,
+                useMaterial3: true,
+              ),
+              home: SentinelMaintenancePage(
+                reason: SintSentinel.circuit?.blockReason.value ?? '',
+                onRetry: () => SintSentinel.circuit?.tryHalfOpen(),
+              ),
+            ),
+          );
+        }),
+      ],
+    );
   }
 }

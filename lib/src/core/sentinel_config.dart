@@ -94,6 +94,21 @@ class SentinelConfig {
   /// Balanced limits for production applications.
   factory SentinelConfig.production() => const SentinelConfig();
 
+  /// Multi-module ecosystem preset (Firebase + AI + realtime feeds) that
+  /// prevents false-positive lockouts on cold boot while blocking runaway
+  /// loops and quota exhaustion.
+  factory SentinelConfig.ecosystem() => const SentinelConfig(
+    maxRequestsPerMinute: 240,
+    maxDailyRequests: 20000,
+    maxDailyWrites: 3000,
+    maxRebuildsPerSecond: 45,
+    rebuildTripMultiplier: 3,
+    failureThreshold: 8,
+    openDuration: Duration(seconds: 20),
+    halfOpenTestRequests: 3,
+    enableExponentialBackoff: true,
+  );
+
   /// Aggressive limits for maximum abuse protection.
   factory SentinelConfig.strict() => const SentinelConfig(
     maxRequestsPerMinute: 30,

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../core/sentinel_config.dart';
 import '../persistence/sentinel_hive_controller.dart';
 
@@ -24,12 +26,18 @@ class TrafficSnapshot {
   bool get isWithinDailyWriteQuota => dailyWrites < maxDailyWrites;
   bool get isHealthy => isWithinMinuteQuota && isWithinDailyReadQuota && isWithinDailyWriteQuota;
 
+  static double _safePct(int used, int limit) {
+    if (limit <= 0) return 0;
+    final pct = (math.max(0, used) / limit) * 100;
+    return pct.isFinite ? pct : 0;
+  }
+
   double get minuteUsagePercent =>
-      maxRequestsPerMinute > 0 ? (requestsLastMinute / maxRequestsPerMinute * 100) : 0;
+      _safePct(requestsLastMinute, maxRequestsPerMinute);
   double get dailyReadUsagePercent =>
-      maxDailyRequests > 0 ? (dailyReads / maxDailyRequests * 100) : 0;
+      _safePct(dailyReads, maxDailyRequests);
   double get dailyWriteUsagePercent =>
-      maxDailyWrites > 0 ? (dailyWrites / maxDailyWrites * 100) : 0;
+      _safePct(dailyWrites, maxDailyWrites);
 
   @override
   String toString() => 'TrafficSnapshot('
@@ -139,14 +147,24 @@ class TrafficWatchdog {
     _dailyReads++;
     if (isWrite) _dailyWrites++;
 
-    // Persist daily counters every 5 requests
-    if (_dailyReads % 5 == 0) {
+    // Persist daily counters independently on first hit and every 5 operations
+    if (_dailyReads == 1 || _dailyReads % 5 == 0) {
       await _hive.setDailyReads(_dailyReads);
-      if (isWrite) await _hive.setDailyWrites(_dailyWrites);
+    }
+    if (isWrite && (_dailyWrites == 1 || _dailyWrites % 5 == 0)) {
+      await _hive.setDailyWrites(_dailyWrites);
     }
 
     _lastViolation = null;
     return true;
+  }
+
+  /// Flushes current in-memory counters to persistence immediately.
+  Future<void> flushCounters() async {
+    if (!_initialized) return;
+    await _hive.setDailyReads(_dailyReads);
+    await _hive.setDailyWrites(_dailyWrites);
+    await _hive.setMinuteTimestamps(List<int>.from(_recentTimestamps));
   }
 
   /// Human-readable reason for the last quota violation, or `null` if the
@@ -191,7 +209,8 @@ class TrafficWatchdog {
 
   void _pruneOldTimestamps(int nowMs) {
     final cutoff = nowMs - const Duration(seconds: 60).inMilliseconds;
-    _recentTimestamps.removeWhere((t) => t < cutoff);
+    final maxFutureMs = nowMs + const Duration(seconds: 5).inMilliseconds;
+    _recentTimestamps.removeWhere((t) => t < cutoff || t > maxFutureMs);
   }
 
   Future<void> _resetDailyIfNeeded() async {
@@ -204,12 +223,15 @@ class TrafficWatchdog {
 
     final lastResetDate = DateTime.tryParse(lastReset);
     if (lastResetDate == null) {
+      _dailyReads = 0;
+      _dailyWrites = 0;
       await _hive.resetDaily();
       return;
     }
 
     final elapsed = DateTime.now().difference(lastResetDate);
-    if (elapsed >= config.dailyResetDuration) {
+    if (elapsed >= config.dailyResetDuration ||
+        elapsed < const Duration(minutes: -5)) {
       _dailyReads = 0;
       _dailyWrites = 0;
       await _hive.resetDaily();

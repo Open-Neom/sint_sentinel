@@ -82,8 +82,28 @@ class SintSentinel {
   // ---------------------------------------------------------------------------
 
   static SentinelCircuit? _circuit;
+  static Future<void>? _initFuture;
   static SentinelConfig _config = const SentinelConfig();
-  static final SentinelSnapshotStore _snapshots = SentinelSnapshotStore.instance;
+  static SentinelSnapshotStore _snapshots = SentinelSnapshotStore.instance;
+
+  /// Maximum distinct diagnostic tags retained in memory for telemetry.
+  static const int maxTrackedTags = 128;
+  static final Map<String, int> _tagCalls = <String, int>{};
+  static final Map<String, int> _tagFailures = <String, int>{};
+  static final Map<String, int> _tagBlocks = <String, int>{};
+
+  static void _recordTagMetric(Map<String, int> bucket, String? safeTag) {
+    if (safeTag == null || safeTag.isEmpty) return;
+    if (!bucket.containsKey(safeTag) && bucket.length >= maxTrackedTags) {
+      bucket.remove(bucket.keys.first);
+    }
+    bucket[safeTag] = (bucket[safeTag] ?? 0) + 1;
+  }
+
+  /// Sanitizes diagnostic strings (tags, reasons, error messages) so inline
+  /// credentials and Bidi/control characters never leak into logs or UI.
+  static String sanitizeDiagnosticText(String raw, {int maxChars = 300}) =>
+      SentinelCircuit.sanitizeReason(raw, maxChars: maxChars);
 
   // ---------------------------------------------------------------------------
   // Initialization
@@ -91,18 +111,52 @@ class SintSentinel {
 
   /// Initializes the sentinel. Call once before using [guard].
   ///
-  /// Safe to call multiple times — subsequent calls are no-ops.
-  static Future<void> init({SentinelConfig? config}) async {
+  /// Safe to call multiple times or concurrently — subsequent calls await or
+  /// reuse the active instance without duplicating circuits.
+  static Future<void> init({
+    SentinelConfig? config,
+    SentinelHiveController? hive,
+    SentinelSnapshotStore? snapshotStore,
+  }) async {
     if (_circuit != null) return; // Already initialized
+    if (_initFuture != null) return _initFuture!;
+
+    final future = _performInit(
+      config: config,
+      hive: hive,
+      snapshotStore: snapshotStore,
+    );
+    _initFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_initFuture, future)) {
+        _initFuture = null;
+      }
+    }
+  }
+
+  static Future<void> _performInit({
+    SentinelConfig? config,
+    SentinelHiveController? hive,
+    SentinelSnapshotStore? snapshotStore,
+  }) async {
+    if (_circuit != null) return;
 
     _config = config ?? const SentinelConfig();
-    _circuit = SentinelCircuit(
+    _snapshots = snapshotStore ?? SentinelSnapshotStore.instance;
+    final circuit = SentinelCircuit(
       config: _config,
-      hive: SentinelHiveController(),
+      hive: hive ?? SentinelHiveController(),
     );
-    await _circuit!.init();
-    await _snapshots.init();
-    _circuit!.onTrip = () => capture();
+    await circuit.init();
+    try {
+      await _snapshots.init();
+    } catch (_) {
+      // Snapshot store falls back to in-memory automatically.
+    }
+    circuit.onTrip = () => capture();
+    _circuit = circuit;
     logger.i('SintSentinel initialized — $_config');
   }
 
@@ -125,38 +179,72 @@ class SintSentinel {
   /// against the daily write quota.
   ///
   /// [tag] is an optional label for logging / diagnostics.
+  ///
+  /// [countFailureIf] optionally filters which thrown exceptions count toward
+  /// tripping the circuit breaker (defaults to counting all exceptions).
   static Future<T> guard<T>(
     Future<T> Function() action, {
     T Function()? fallback,
     bool isWrite = false,
     String? tag,
+    bool Function(Object error)? countFailureIf,
   }) async {
     final circuit = _circuit;
 
     // If sentinel is not initialized, pass through without protection
     if (circuit == null) return action();
 
+    final safeTag = tag != null && tag.trim().isNotEmpty
+        ? sanitizeDiagnosticText(tag, maxChars: 80)
+        : null;
+
     // --- Check the circuit ---
     if (!await circuit.canExecute(isWrite: isWrite)) {
-      final reason = circuit.blockReason.value;
-      logger.w('Sentinel BLOCKED${tag != null ? ' [$tag]' : ''}: $reason');
+      _recordTagMetric(_tagBlocks, safeTag);
+      final reason = sanitizeDiagnosticText(circuit.blockReason.value);
+      logger.w(
+        'Sentinel BLOCKED${safeTag != null ? ' [$safeTag]' : ''}: $reason',
+      );
       if (fallback != null) return fallback();
       throw SentinelBlockedException(reason);
     }
+
+    _recordTagMetric(_tagCalls, safeTag);
 
     // --- Execute the action ---
     try {
       final result = await action();
       await circuit.recordSuccess();
-      if (tag != null) logger.t('Sentinel OK [$tag]');
+      if (safeTag != null) logger.t('Sentinel OK [$safeTag]');
       return result;
     } catch (e) {
-      await circuit.recordFailure();
-      logger.e('Sentinel FAILURE${tag != null ? ' [$tag]' : ''}',
-          error: e);
+      final shouldCount = countFailureIf == null || countFailureIf(e);
+      if (shouldCount) {
+        _recordTagMetric(_tagFailures, safeTag);
+        await circuit.recordFailure();
+      }
+      final redactedErr = sanitizeDiagnosticText('$e');
+      logger.e(
+        'Sentinel FAILURE${safeTag != null ? ' [$safeTag]' : ''}: $redactedErr',
+      );
       rethrow;
     }
   }
+
+  /// Convenience wrapper around [guard] for write mutations (`isWrite: true`).
+  static Future<T> guardWrite<T>(
+    Future<T> Function() action, {
+    T Function()? fallback,
+    String? tag,
+    bool Function(Object error)? countFailureIf,
+  }) =>
+      guard<T>(
+        action,
+        fallback: fallback,
+        isWrite: true,
+        tag: tag,
+        countFailureIf: countFailureIf,
+      );
 
   // ---------------------------------------------------------------------------
   // Accessors
@@ -186,6 +274,11 @@ class SintSentinel {
     }
     final status = await _circuit!.getStatus();
     status['config'] = _config.toString();
+    status['tagMetrics'] = <String, dynamic>{
+      'calls': Map<String, int>.from(_tagCalls),
+      'failures': Map<String, int>.from(_tagFailures),
+      'blocks': Map<String, int>.from(_tagBlocks),
+    };
     return status;
   }
 
@@ -193,26 +286,51 @@ class SintSentinel {
   // Snapshots
   // ---------------------------------------------------------------------------
 
+  static int _safeStatusInt(Object? raw) {
+    if (raw is num && raw.isFinite) {
+      final v = raw.toInt();
+      return v < 0 ? 0 : v;
+    }
+    return 0;
+  }
+
   /// Captures a snapshot of the current state and persists it to history.
   ///
   /// Called automatically on every circuit trip. Can also be called on
   /// demand by external consumers (e.g. AI context enrichment).
   static Future<SentinelSnapshot> capture() async {
     final status = await getStatus();
-    final traffic = status['traffic'] as Map<String, dynamic>? ?? {};
+    final rawTraffic = status['traffic'];
+    final traffic = rawTraffic is Map
+        ? Map<String, dynamic>.from(rawTraffic)
+        : const <String, dynamic>{};
+    final minPctRaw = traffic['minuteUsagePercent'];
+    final readPctRaw = traffic['dailyReadUsagePercent'];
+    final rawOffenders = status['rebuildOffenders'];
 
     final snapshot = SentinelSnapshot(
       timestamp: DateTime.now(),
-      circuitState: status['circuitState'] as String? ?? 'closed',
-      blockReason: status['blockReason'] as String? ?? '',
-      consecutiveFailures: status['consecutiveFailures'] as int? ?? 0,
-      tripCount: status['tripCount'] as int? ?? 0,
-      requestsLastMinute: traffic['requestsLastMinute'] as int? ?? 0,
-      dailyReads: traffic['dailyReads'] as int? ?? 0,
-      dailyWrites: traffic['dailyWrites'] as int? ?? 0,
-      minuteUsagePercent: (traffic['minuteUsagePercent'] ?? 0).toDouble(),
-      dailyReadUsagePercent: (traffic['dailyReadUsagePercent'] ?? 0).toDouble(),
-      rebuildOffenders: List<String>.from(status['rebuildOffenders'] ?? []),
+      circuitState: status['circuitState'] is String
+          ? status['circuitState'] as String
+          : 'closed',
+      blockReason: status['blockReason'] is String
+          ? status['blockReason'] as String
+          : '',
+      consecutiveFailures: _safeStatusInt(status['consecutiveFailures']),
+      tripCount: _safeStatusInt(status['tripCount']),
+      requestsLastMinute: _safeStatusInt(traffic['requestsLastMinute']),
+      dailyReads: _safeStatusInt(traffic['dailyReads']),
+      dailyWrites: _safeStatusInt(traffic['dailyWrites']),
+      minuteUsagePercent: minPctRaw is num && minPctRaw.isFinite && minPctRaw >= 0
+          ? minPctRaw.toDouble()
+          : 0.0,
+      dailyReadUsagePercent:
+          readPctRaw is num && readPctRaw.isFinite && readPctRaw >= 0
+          ? readPctRaw.toDouble()
+          : 0.0,
+      rebuildOffenders: rawOffenders is Iterable
+          ? rawOffenders.map((e) => e.toString()).toList()
+          : const <String>[],
     );
 
     await _snapshots.save(snapshot);
@@ -237,12 +355,19 @@ class SintSentinel {
 
   /// Full reset — closes the circuit and clears all counters.
   static Future<void> reset() async {
+    _tagCalls.clear();
+    _tagFailures.clear();
+    _tagBlocks.clear();
     await _circuit?.reset();
     logger.i('SintSentinel reset — circuit closed, counters cleared');
   }
 
   /// Disposes the sentinel (for app shutdown / testing).
   static void dispose() {
+    _initFuture = null;
+    _tagCalls.clear();
+    _tagFailures.clear();
+    _tagBlocks.clear();
     _circuit?.dispose();
     _circuit = null;
   }

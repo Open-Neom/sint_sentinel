@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../core/sentinel_state.dart';
 import '../guard/sint_sentinel_guard.dart';
 
 /// A mixin for [State] subclasses that monitors widget rebuild frequency.
@@ -30,9 +31,15 @@ import '../guard/sint_sentinel_guard.dart';
 /// - Trips the circuit on sustained cyclic rebuild abuse.
 /// - Unregisters the widget when disposed.
 mixin SentinelRebuildMonitor<T extends StatefulWidget> on State<T> {
+  late final String _defaultSentinelWidgetId =
+      '$runtimeType#${identityHashCode(this).toRadixString(16)}';
 
-  /// Override to provide a custom identifier. Defaults to `runtimeType.toString()`.
-  String get sentinelWidgetId => runtimeType.toString();
+  /// Override to provide a custom identifier.
+  ///
+  /// Defaults to an instance-scoped identifier (`StateType#hash`) so multiple
+  /// instances of the same widget (e.g. list items) neither share rebuild
+  /// counters nor unregister active siblings when one instance is disposed.
+  String get sentinelWidgetId => _defaultSentinelWidgetId;
 
   @override
   void setState(VoidCallback fn) {
@@ -41,6 +48,10 @@ mixin SentinelRebuildMonitor<T extends StatefulWidget> on State<T> {
 
     if (watchdog != null && !watchdog.recordRebuild(sentinelWidgetId)) {
       // ── Rebuild threshold exceeded ──
+      final safeId = SintSentinel.sanitizeDiagnosticText(
+        sentinelWidgetId,
+        maxChars: 120,
+      );
 
       // 1. Track the throttled call
       final throttleCount = watchdog.recordThrottle(sentinelWidgetId);
@@ -50,25 +61,29 @@ mixin SentinelRebuildMonitor<T extends StatefulWidget> on State<T> {
         watchdog.markNotified(sentinelWidgetId);
         final limit = SintSentinel.config.maxRebuildsPerSecond;
         debugPrint(
-          '⚠️ SintSentinel: Cyclic rebuild detected in [$sentinelWidgetId]. '
+          '⚠️ SintSentinel: Cyclic rebuild detected in [$safeId]. '
           'Exceeds $limit rebuilds/s. Throttling setState calls.',
         );
       }
 
-      // 3. Trip circuit on sustained abuse
+      // 3. Trip circuit once on sustained abuse (avoid re-tripping on every
+      //    throttled frame while the circuit is already OPEN).
       final tripThreshold = SintSentinel.config.maxRebuildsPerSecond
           * SintSentinel.config.rebuildTripMultiplier;
 
-      if (throttleCount >= tripThreshold && circuit != null) {
+      if (tripThreshold > 0 &&
+          throttleCount >= tripThreshold &&
+          circuit != null &&
+          circuit.state.value != SentinelCircuitState.open) {
         debugPrint(
-          '🛑 SintSentinel: Circuit TRIPPED by [$sentinelWidgetId]. '
+          '🛑 SintSentinel: Circuit TRIPPED by [$safeId]. '
           '$throttleCount throttled calls (threshold: $tripThreshold). '
           'Showing maintenance page.',
         );
         // Fire-and-forget — the async Hive writes complete in the background.
         // The Rx state update triggers SentinelApp's Obx on the next frame.
         circuit.trip(
-          'Cyclic rebuild loop: $sentinelWidgetId '
+          'Cyclic rebuild loop: $safeId '
           '($throttleCount throttled calls)',
         );
       }
